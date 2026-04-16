@@ -1,15 +1,18 @@
-import os
 from fastmcp import FastMCP
 
-mcp = FastMCP("m365-graph-mcp-dev")
+mcp = FastMCP(
+    "M365 Graph MCP",
+    stateless_http=True,
+    json_response=True   # wichtig für Copilot Studio
+)
 
-@mcp.tool(description="Simple health tool.")
+@mcp.tool
 def ping() -> str:
-    return "OK"
-
-app = mcp.http_app()
+    return "pong"
 
 if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", "8080"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    mcp.run(
+        transport="streamable-http",
+        host="0.0.0.0",
+        port=8000
+    )
