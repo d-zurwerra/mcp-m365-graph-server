@@ -1,13 +1,4 @@
-FROM python:3.12-slim
-
-WORKDIR /app
-
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY src ./src
-
-ENV PORT=8080
-EXPOSE 8080
-
-CMD ["python", "src/server.py"]
+RUN ls -la && echo "---- requirements.txt ----" && cat requirements.txt && echo "--------------------------"
+RUN python -m pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt -v
