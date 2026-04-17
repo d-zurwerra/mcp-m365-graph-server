@@ -1,25 +1,19 @@
 """
 auth.py – Federated Identity Token Flow
-
-Flow:
-  1. Managed Identity (ACA) holt einen OIDC-Token von Entra Tenant A (in2success)
-  2. Dieser Token wird gegen Entra Tenant B (DEV-Tenant) getauscht
-  3. Resultat: Graph Access Token für Tenant B
-
-Kein Secret. Kein Zertifikat.
 """
 
 import os
+import logging
 import httpx
 from azure.identity import ManagedIdentityCredential
 from azure.core.exceptions import ClientAuthenticationError
 
-# Umgebungsvariablen (werden in ACA als Environment Variables gesetzt)
-DEV_TENANT_ID = os.environ["DEV_TENANT_ID"]       # DEV-Tenant B
-APP_CLIENT_ID = os.environ["APP_CLIENT_ID"]         # App Registration Client ID (DEV-Tenant B)
+logger = logging.getLogger("oskar-mcp-server.auth")
+
+DEV_TENANT_ID = os.environ["DEV_TENANT_ID"]
+APP_CLIENT_ID = os.environ["APP_CLIENT_ID"]
 
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
-TOKEN_EXCHANGE_SCOPE = f"api://AzureADTokenExchange"
 TOKEN_URL = f"https://login.microsoftonline.com/{DEV_TENANT_ID}/oauth2/v2.0/token"
 
 
@@ -27,33 +21,41 @@ async def get_graph_token() -> str:
     """
     Holt einen Graph Access Token via Workload Identity Federation.
 
-    1. MI-Token von Tenant A holen (als OIDC assertion)
-    2. Token Exchange gegen Tenant B durchführen
-    3. Graph Token zurückgeben
+    Korrekte Methode:
+    1. MI Token mit Graph Scope holen (nicht AzureADTokenExchange)
+    2. Diesen Token als client_assertion verwenden
     """
     try:
-        # Schritt 1: MI-Token als OIDC Assertion holen
+        # Schritt 1: MI Token holen – Scope muss auf den Ziel-Tenant zeigen
+        # Für Federated Identity: der MI Token selbst ist die Assertion
         credential = ManagedIdentityCredential()
-        mi_token = credential.get_token(TOKEN_EXCHANGE_SCOPE)
-        assertion = mi_token.token
 
-        # Schritt 2: Token Exchange gegen DEV-Tenant B
+        # Der Scope für den MI Token muss die App Registration im DEV-Tenant sein
+        mi_scope = f"{APP_CLIENT_ID}/.default"
+        logger.info(f"Hole MI Token mit Scope: {mi_scope}")
+
+        mi_token = credential.get_token(mi_scope)
+        assertion = mi_token.token
+        logger.info("MI Token erfolgreich geholt")
+
+        # Schritt 2: Client Credentials mit Federated Assertion
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 TOKEN_URL,
                 data={
-                    "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                    "grant_type": "client_credentials",
                     "client_id": APP_CLIENT_ID,
                     "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
                     "client_assertion": assertion,
                     "scope": GRAPH_SCOPE,
-                    "requested_token_use": "on_behalf_of",
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
                 timeout=30,
             )
 
+            logger.info(f"Token Exchange Response: {response.status_code}")
             if response.status_code != 200:
+                logger.error(f"Token Exchange Fehler: {response.text}")
                 raise RuntimeError(
                     f"Token Exchange fehlgeschlagen: {response.status_code} – {response.text}"
                 )
@@ -62,7 +64,7 @@ async def get_graph_token() -> str:
 
     except ClientAuthenticationError as e:
         raise RuntimeError(
-            f"Managed Identity nicht verfügbar (läuft der Server lokal?): {e}"
+            f"Managed Identity nicht verfügbar: {e}"
         ) from e
 
 
