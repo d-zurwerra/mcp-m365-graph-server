@@ -1,52 +1,36 @@
 """
-auth.py – Federated Identity Token Flow
+auth.py – Client Secret Auth (temporär für POC)
 
-Flow:
-  1. User-Assigned Managed Identity (ACA) holt OIDC Token (Audience: api://AzureADTokenExchange)
-  2. ClientAssertionCredential tauscht diesen Token gegen Graph Token im DEV-Tenant
-  3. Resultat: Graph Access Token für DEV-Tenant B
+⚠️ TODO Produktion: Auf Workload Identity Federation umstellen
+sobald App Registration im in2success Tenant angelegt ist.
+Dann: ClientSecretCredential → ClientAssertionCredential + ManagedIdentityCredential
 
-Kein Secret. Kein Zertifikat.
-Requires: User-Assigned MI (nicht System-Assigned!)
+Aktueller Flow:
+  Client Credentials (App Registration DEV-Tenant + Secret) → Graph Token
 """
 
 import os
 import logging
-from azure.identity import ManagedIdentityCredential, ClientAssertionCredential
+from azure.identity import ClientSecretCredential
 from azure.core.exceptions import ClientAuthenticationError
 
 logger = logging.getLogger("oskar-mcp-server.auth")
 
-DEV_TENANT_ID = os.environ["DEV_TENANT_ID"]    # DEV-Tenant B
-APP_CLIENT_ID = os.environ["APP_CLIENT_ID"]     # App Registration Client ID (DEV-Tenant B)
-MI_CLIENT_ID  = os.environ["MI_CLIENT_ID"]      # User-Assigned MI Client ID
+DEV_TENANT_ID   = os.environ["DEV_TENANT_ID"]    # DEV-Tenant
+APP_CLIENT_ID   = os.environ["APP_CLIENT_ID"]     # App Registration Client ID
+CLIENT_SECRET   = os.environ["CLIENT_SECRET"]     # App Registration Client Secret
 
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
-AUDIENCE    = "api://AzureADTokenExchange"
-
-
-def _get_mi_token() -> str:
-    """Holt einen OIDC Token von der User-Assigned MI."""
-    credential = ManagedIdentityCredential(client_id=MI_CLIENT_ID)
-    token = credential.get_token(f"{AUDIENCE}/.default")
-    logger.info("MI Token erfolgreich geholt")
-    return token.token
 
 
 async def get_graph_token() -> str:
-    """
-    Holt einen Graph Access Token via Workload Identity Federation.
-
-    Verwendet ClientAssertionCredential – der offizielle Microsoft-Weg
-    für MI as Federated Identity Credential.
-    """
+    """Holt einen Graph Access Token via Client Secret Credentials."""
     try:
-        credential = ClientAssertionCredential(
+        credential = ClientSecretCredential(
             tenant_id=DEV_TENANT_ID,
             client_id=APP_CLIENT_ID,
-            func=_get_mi_token,  # Callback der den MI Token zurückgibt
+            client_secret=CLIENT_SECRET,
         )
-
         token = credential.get_token(GRAPH_SCOPE)
         logger.info("Graph Token erfolgreich geholt")
         return token.token
@@ -54,9 +38,6 @@ async def get_graph_token() -> str:
     except ClientAuthenticationError as e:
         logger.error(f"Auth Fehler: {e}")
         raise RuntimeError(f"Token Exchange fehlgeschlagen: {e}") from e
-    except Exception as e:
-        logger.error(f"Unbekannter Fehler: {e}")
-        raise
 
 
 async def get_graph_headers() -> dict:
