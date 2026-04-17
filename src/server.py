@@ -1,19 +1,21 @@
-import os
 from fastmcp import FastMCP
+import os
 
-# Wichtig: stateless_http + json_response für Copilot Studio (streamable HTTP, kein SSE)
 mcp = FastMCP(
     "M365 Graph MCP",
-    stateless_http=True,
     json_response=True
 )
 
-@mcp.tool(description="Health check tool.")
+@mcp.tool(description="Health check tool")
 def ping() -> str:
     return "pong"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
+
+    # ✅ stateless HTTP jetzt hier, nicht im Konstruktor
+    os.environ["FASTMCP_STATELESS_HTTP"] = "true"
+
     mcp.run(
         transport="streamable-http",
         host="0.0.0.0",
