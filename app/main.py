@@ -203,12 +203,11 @@ async def create_sharepoint_list_item(
 
 # ─── SERVER START ─────────────────────────────────────────────────────────────
 
+# ASGI App auf Modul-Ebene – wird von uvicorn direkt geladen
+app = mcp.streamable_http_app()
+
 if __name__ == "__main__":
     import uvicorn
-
     port = int(os.environ.get("PORT", 8000))
     logger.info(f"Oskar MCP Server startet auf Port {port}")
-
-    # Streamable HTTP Transport via mcp SDK
-    app = mcp.streamable_http_app()
     uvicorn.run(app, host="0.0.0.0", port=port)
