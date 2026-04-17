@@ -13,7 +13,7 @@ def ping() -> str:
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
 
-    # ✅ stateless HTTP jetzt hier, nicht im Konstruktor
+    # ✅ stateless mode per ENV (neue FastMCP-API)
     os.environ["FASTMCP_STATELESS_HTTP"] = "true"
 
     mcp.run(
