@@ -8,6 +8,7 @@ Framework: mcp Python SDK + uvicorn
 import os
 import logging
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from app.tools.planner import (
     planner_get_tasks,
     planner_create_task,
@@ -32,6 +33,7 @@ logging.basicConfig(
 logger = logging.getLogger("oskar-mcp-server")
 
 # MCP Server initialisieren
+# DNS Rebinding Protection deaktivieren – ACA läuft hinter einem Proxy
 mcp = FastMCP(
     name="Oskar M365 MCP Server",
     instructions=(
@@ -40,6 +42,9 @@ mcp = FastMCP(
         "Teams (Nachrichten senden, Chats erstellen), "
         "SharePoint (Sites und Listen lesen/schreiben)."
     ),
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=False
+    ),
 )
 
 
@@ -47,12 +52,7 @@ mcp = FastMCP(
 
 @mcp.tool()
 async def get_planner_tasks(plan_id: str) -> dict:
-    """
-    Liest alle Aufgaben eines Microsoft Planner Plans.
-
-    Args:
-        plan_id: Die ID des Planner Plans
-    """
+    """Liest alle Aufgaben eines Microsoft Planner Plans."""
     logger.info(f"Tool aufgerufen: get_planner_tasks (plan_id={plan_id})")
     return await planner_get_tasks(plan_id)
 
@@ -65,16 +65,7 @@ async def create_planner_task(
     due_date: str = None,
     assigned_user_id: str = None,
 ) -> dict:
-    """
-    Erstellt eine neue Aufgabe in einem Microsoft Planner Plan.
-
-    Args:
-        plan_id:          Die ID des Planner Plans
-        title:            Titel der Aufgabe
-        bucket_id:        Optional – ID des Buckets (Spalte im Board)
-        due_date:         Optional – Fälligkeitsdatum (ISO 8601, z.B. 2026-05-01T00:00:00Z)
-        assigned_user_id: Optional – Entra User ID des Zugewiesenen
-    """
+    """Erstellt eine neue Aufgabe in einem Microsoft Planner Plan."""
     logger.info(f"Tool aufgerufen: create_planner_task (title={title})")
     return await planner_create_task(plan_id, title, bucket_id, due_date, assigned_user_id)
 
@@ -86,15 +77,7 @@ async def update_planner_task(
     percent_complete: int = None,
     due_date: str = None,
 ) -> dict:
-    """
-    Aktualisiert eine bestehende Planner Aufgabe.
-
-    Args:
-        task_id:          Die ID der Aufgabe
-        title:            Optional – Neuer Titel
-        percent_complete: Optional – Fortschritt in Prozent (0, 50 oder 100)
-        due_date:         Optional – Neues Fälligkeitsdatum (ISO 8601)
-    """
+    """Aktualisiert eine bestehende Planner Aufgabe."""
     logger.info(f"Tool aufgerufen: update_planner_task (task_id={task_id})")
     return await planner_update_task(task_id, title, percent_complete, due_date)
 
@@ -107,14 +90,7 @@ async def send_teams_channel_message(
     channel_id: str,
     message: str,
 ) -> dict:
-    """
-    Sendet eine Nachricht in einen Microsoft Teams Channel.
-
-    Args:
-        team_id:    Die ID des Teams
-        channel_id: Die ID des Channels
-        message:    Der Nachrichtentext (HTML erlaubt)
-    """
+    """Sendet eine Nachricht in einen Microsoft Teams Channel."""
     logger.info(f"Tool aufgerufen: send_teams_channel_message (team_id={team_id})")
     return await teams_send_channel_message(team_id, channel_id, message)
 
@@ -124,29 +100,14 @@ async def create_teams_chat(
     member_user_ids: list[str],
     chat_topic: str = None,
 ) -> dict:
-    """
-    Erstellt einen neuen Microsoft Teams Chat (1:1 oder Gruppe).
-
-    Args:
-        member_user_ids: Liste von Entra User IDs der Chat-Mitglieder (mind. 2)
-        chat_topic:      Optional – Thema des Chats (nur für Gruppen mit 3+ Mitgliedern)
-    """
+    """Erstellt einen neuen Microsoft Teams Chat (1:1 oder Gruppe)."""
     logger.info(f"Tool aufgerufen: create_teams_chat ({len(member_user_ids)} Mitglieder)")
     return await teams_create_chat(member_user_ids, chat_topic)
 
 
 @mcp.tool()
-async def send_teams_chat_message(
-    chat_id: str,
-    message: str,
-) -> dict:
-    """
-    Sendet eine Nachricht in einen bestehenden Microsoft Teams Chat.
-
-    Args:
-        chat_id: Die ID des Chats
-        message: Der Nachrichtentext (HTML erlaubt)
-    """
+async def send_teams_chat_message(chat_id: str, message: str) -> dict:
+    """Sendet eine Nachricht in einen bestehenden Microsoft Teams Chat."""
     logger.info(f"Tool aufgerufen: send_teams_chat_message (chat_id={chat_id})")
     return await teams_send_chat_message(chat_id, message)
 
@@ -155,48 +116,21 @@ async def send_teams_chat_message(
 
 @mcp.tool()
 async def get_sharepoint_sites(search_term: str = None) -> dict:
-    """
-    Listet verfügbare SharePoint Sites auf.
-
-    Args:
-        search_term: Optional – Suchbegriff für Site-Name
-    """
+    """Listet verfügbare SharePoint Sites auf."""
     logger.info(f"Tool aufgerufen: get_sharepoint_sites (search={search_term})")
     return await sharepoint_get_sites(search_term)
 
 
 @mcp.tool()
-async def get_sharepoint_list_items(
-    site_id: str,
-    list_id: str,
-    top: int = 50,
-) -> dict:
-    """
-    Liest Items aus einer SharePoint Liste.
-
-    Args:
-        site_id: Die ID der SharePoint Site
-        list_id: Die ID der Liste (Name oder GUID)
-        top:     Maximale Anzahl Items (Standard: 50, Maximum: 999)
-    """
+async def get_sharepoint_list_items(site_id: str, list_id: str, top: int = 50) -> dict:
+    """Liest Items aus einer SharePoint Liste."""
     logger.info(f"Tool aufgerufen: get_sharepoint_list_items (site={site_id}, list={list_id})")
     return await sharepoint_get_list_items(site_id, list_id, top)
 
 
 @mcp.tool()
-async def create_sharepoint_list_item(
-    site_id: str,
-    list_id: str,
-    fields: dict,
-) -> dict:
-    """
-    Erstellt ein neues Item in einer SharePoint Liste.
-
-    Args:
-        site_id:  Die ID der SharePoint Site
-        list_id:  Die ID der Liste
-        fields:   Dictionary mit Feldnamen und Werten, z.B. {"Title": "Neues Item", "Status": "Offen"}
-    """
+async def create_sharepoint_list_item(site_id: str, list_id: str, fields: dict) -> dict:
+    """Erstellt ein neues Item in einer SharePoint Liste."""
     logger.info(f"Tool aufgerufen: create_sharepoint_list_item (site={site_id}, list={list_id})")
     return await sharepoint_create_list_item(site_id, list_id, fields)
 
@@ -204,11 +138,7 @@ async def create_sharepoint_list_item(
 # ─── SERVER START ─────────────────────────────────────────────────────────────
 
 # ASGI App auf Modul-Ebene – wird von uvicorn direkt geladen
-_mcp_app = mcp.streamable_http_app()
-
-# Allowed Hosts Middleware – erlaubt alle Hosts (ACA Proxy)
-from starlette.middleware.trustedhost import TrustedHostMiddleware
-app = TrustedHostMiddleware(_mcp_app, allowed_hosts=["*"])
+app = mcp.streamable_http_app()
 
 if __name__ == "__main__":
     import uvicorn
