@@ -1,5 +1,9 @@
-from fastmcp import FastMCP
 import os
+
+# 🔑 MUSS vor FastMCP-Import gesetzt werden
+os.environ["FASTMCP_STATELESS_HTTP"] = "true"
+
+from fastmcp import FastMCP
 
 mcp = FastMCP("M365 Graph MCP")
 
@@ -9,8 +13,6 @@ def ping() -> str:
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
-
-    os.environ["FASTMCP_STATELESS_HTTP"] = "true"
 
     mcp.run(
         transport="streamable-http",
