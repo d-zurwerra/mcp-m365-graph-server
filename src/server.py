@@ -1,19 +1,15 @@
 from fastmcp import FastMCP
 import os
 
-mcp = FastMCP(
-    "M365 Graph MCP",
-    json_response=True
-)
+mcp = FastMCP("M365 Graph MCP")
 
-@mcp.tool(description="Health check tool")
+@mcp.tool
 def ping() -> str:
     return "pong"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
 
-    # ✅ stateless mode per ENV (neue FastMCP-API)
     os.environ["FASTMCP_STATELESS_HTTP"] = "true"
 
     mcp.run(
