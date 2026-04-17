@@ -204,7 +204,11 @@ async def create_sharepoint_list_item(
 # ─── SERVER START ─────────────────────────────────────────────────────────────
 
 # ASGI App auf Modul-Ebene – wird von uvicorn direkt geladen
-app = mcp.streamable_http_app()
+_mcp_app = mcp.streamable_http_app()
+
+# Allowed Hosts Middleware – erlaubt alle Hosts (ACA Proxy)
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+app = TrustedHostMiddleware(_mcp_app, allowed_hosts=["*"])
 
 if __name__ == "__main__":
     import uvicorn
