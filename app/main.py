@@ -13,7 +13,7 @@ from app.tools.planner import planner_get_plans, planner_create_plan, planner_ge
 from app.tools.teams import teams_get_list, teams_get_channels, teams_create_channel, teams_get_members, teams_add_member, teams_create_chat, teams_send_chat_message
 from app.tools.sharepoint import sharepoint_get_sites, sharepoint_get_lists, sharepoint_create_list, sharepoint_get_list_items, sharepoint_create_list_item
 from app.tools.onenote import onenote_get_notebooks, onenote_create_notebook, onenote_create_page
-from app.tools.groups import find_user as _find_user, create_m365_group as _create_m365_group, upgrade_to_team as _upgrade_to_team
+from app.tools.groups import find_user as _find_user, create_m365_group as _create_m365_group, upgrade_to_team as _upgrade_to_team, get_m365_groups as _get_m365_groups
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("oskar-mcp-server")
@@ -31,6 +31,20 @@ mcp = FastMCP(
 
 
 # ─── GROUPS & ONBOARDING TOOLS ────────────────────────────────────────────────
+
+@mcp.tool()
+async def get_m365_groups(search: str = None) -> dict:
+    """
+    Listet alle Microsoft 365 Gruppen auf – auch solche die noch kein Team sind.
+    Verwende dies IMMER zuerst um zu prüfen ob eine Gruppe bereits existiert,
+    bevor du create_m365_group aufrufst.
+
+    Args:
+        search: Optional – Suchbegriff für Gruppenname
+    """
+    logger.info(f"Tool aufgerufen: get_m365_groups (search={search})")
+    return await _get_m365_groups(search)
+
 
 @mcp.tool()
 async def find_user(search: str) -> dict:
