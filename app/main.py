@@ -9,7 +9,7 @@ import os
 import logging
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from app.tools.planner import planner_get_plans, planner_create_plan, planner_get_tasks, planner_create_task, planner_update_task
+from app.tools.planner import planner_get_plans, planner_create_plan, planner_get_tasks, planner_create_task, planner_update_task, planner_create_bucket
 from app.tools.teams import teams_get_list, teams_get_channels, teams_create_channel, teams_get_members, teams_add_member, teams_create_chat, teams_send_chat_message
 from app.tools.sharepoint import sharepoint_get_sites, sharepoint_get_lists, sharepoint_create_list, sharepoint_get_list_items, sharepoint_create_list_item
 from app.tools.onenote import onenote_get_notebooks, onenote_create_notebook, onenote_create_page
@@ -264,6 +264,21 @@ async def create_planner_plan(group_id: str, title: str) -> dict:
     """
     logger.info(f"Tool aufgerufen: create_planner_plan (group={group_id}, title={title})")
     return await planner_create_plan(group_id, title)
+
+
+@mcp.tool()
+async def create_planner_bucket(plan_id: str, name: str) -> dict:
+    """
+    Erstellt einen neuen Bucket in einem Planner Plan.
+    Buckets sind Kategorien/Spalten in Planner.
+    Nach dem Erstellen des Buckets können Tasks mit der bucket_id diesem Bucket zugewiesen werden.
+
+    Args:
+        plan_id: Die ID des Planner Plans
+        name:    Name des Buckets (z.B. "Onboarding")
+    """
+    logger.info(f"Tool aufgerufen: create_planner_bucket (plan={plan_id}, name={name})")
+    return await planner_create_bucket(plan_id, name)
 
 
 @mcp.tool()
