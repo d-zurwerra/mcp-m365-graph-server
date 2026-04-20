@@ -47,6 +47,7 @@ async def create_m365_group(
     description: str = None,
     owner_user_ids: list[str] = None,
     member_user_ids: list[str] = None,
+    visibility: str = "Private",
 ) -> dict:
     """
     Erstellt eine neue Microsoft 365 Gruppe.
@@ -68,7 +69,8 @@ async def create_m365_group(
         "mailNickname": mail_nickname,
         "mailEnabled": True,
         "securityEnabled": False,
-        "groupTypes": ["Unified"],  # Unified = M365 Gruppe
+        "groupTypes": ["Unified"],
+        "visibility": visibility,  # "Private" oder "Public"
     }
 
     if description:
@@ -215,3 +217,28 @@ async def add_group_owner(group_id: str, user_id: str) -> dict:
             return {"success": True, "userId": user_id, "note": "User ist bereits Owner"}
         response.raise_for_status()
         return {"success": True, "userId": user_id}
+
+
+async def get_group_site(group_id: str) -> dict:
+    """
+    Holt die SharePoint Site einer M365 Gruppe.
+    Jede M365 Gruppe hat automatisch eine zugehörige SharePoint Site.
+
+    Args:
+        group_id: Die ID der M365 Gruppe
+    """
+    headers = await get_graph_headers()
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{GRAPH_BASE}/groups/{group_id}/sites/root",
+            headers=headers,
+            timeout=30,
+        )
+        response.raise_for_status()
+        site = response.json()
+        return {
+            "siteId": site.get("id"),
+            "displayName": site.get("displayName"),
+            "webUrl": site.get("webUrl"),
+            "name": site.get("name"),
+        }
