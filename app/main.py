@@ -13,7 +13,7 @@ from app.tools.planner import planner_get_plans, planner_create_plan, planner_ge
 from app.tools.teams import teams_get_list, teams_get_channels, teams_create_channel, teams_get_members, teams_add_member, teams_create_chat, teams_send_chat_message
 from app.tools.sharepoint import sharepoint_get_sites, sharepoint_get_lists, sharepoint_create_list, sharepoint_get_list_items, sharepoint_create_list_item
 from app.tools.onenote import onenote_get_notebooks, onenote_create_notebook, onenote_create_page
-from app.tools.groups import find_user as _find_user, create_m365_group as _create_m365_group, upgrade_to_team as _upgrade_to_team, get_m365_groups as _get_m365_groups, get_group_owners as _get_group_owners, add_group_owner as _add_group_owner, get_group_site as _get_group_site
+from app.tools.groups import find_user as _find_user, create_m365_group as _create_m365_group, upgrade_to_team as _upgrade_to_team, get_m365_groups as _get_m365_groups, get_group_owners as _get_group_owners, add_group_owner as _add_group_owner, get_group_site as _get_group_site, add_group_member as _add_group_member
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("oskar-mcp-server")
@@ -44,6 +44,21 @@ async def get_m365_groups(search: str = None) -> dict:
     """
     logger.info(f"Tool aufgerufen: get_m365_groups (search={search})")
     return await _get_m365_groups(search)
+
+
+@mcp.tool()
+async def add_group_member(group_id: str, user_id: str) -> dict:
+    """
+    Fügt einen User als Member zu einer M365 Gruppe hinzu.
+    Verwende dieses Tool um sicherzustellen dass User den Planner Plan sehen können.
+    Wichtig: Owner sind nicht automatisch Members – beide Rollen müssen separat gesetzt werden.
+
+    Args:
+        group_id: Die ID der M365 Gruppe
+        user_id:  Die Entra User ID
+    """
+    logger.info(f"Tool aufgerufen: add_group_member (group={group_id}, user={user_id})")
+    return await _add_group_member(group_id, user_id)
 
 
 @mcp.tool()
