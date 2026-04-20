@@ -13,7 +13,7 @@ from app.tools.planner import planner_get_plans, planner_create_plan, planner_ge
 from app.tools.teams import teams_get_list, teams_get_channels, teams_create_channel, teams_get_members, teams_add_member, teams_create_chat, teams_send_chat_message
 from app.tools.sharepoint import sharepoint_get_sites, sharepoint_get_lists, sharepoint_create_list, sharepoint_get_list_items, sharepoint_create_list_item
 from app.tools.onenote import onenote_get_notebooks, onenote_create_notebook, onenote_create_page
-from app.tools.groups import find_user as _find_user, create_m365_group as _create_m365_group, upgrade_to_team as _upgrade_to_team, get_m365_groups as _get_m365_groups
+from app.tools.groups import find_user as _find_user, create_m365_group as _create_m365_group, upgrade_to_team as _upgrade_to_team, get_m365_groups as _get_m365_groups, get_group_owners as _get_group_owners, add_group_owner as _add_group_owner
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("oskar-mcp-server")
@@ -44,6 +44,33 @@ async def get_m365_groups(search: str = None) -> dict:
     """
     logger.info(f"Tool aufgerufen: get_m365_groups (search={search})")
     return await _get_m365_groups(search)
+
+
+@mcp.tool()
+async def get_group_owners(group_id: str) -> dict:
+    """
+    Listet alle Owner einer M365 Gruppe auf.
+    Verwende dies um zu prüfen ob ein User bereits Owner ist.
+
+    Args:
+        group_id: Die ID der M365 Gruppe
+    """
+    logger.info(f"Tool aufgerufen: get_group_owners (group_id={group_id})")
+    return await _get_group_owners(group_id)
+
+
+@mcp.tool()
+async def add_group_owner(group_id: str, user_id: str) -> dict:
+    """
+    Fügt einen Owner zu einer M365 Gruppe hinzu.
+    Prüfe vorher mit get_group_owners ob der User bereits Owner ist.
+
+    Args:
+        group_id: Die ID der M365 Gruppe
+        user_id:  Die Entra User ID des neuen Owners
+    """
+    logger.info(f"Tool aufgerufen: add_group_owner (group={group_id}, user={user_id})")
+    return await _add_group_owner(group_id, user_id)
 
 
 @mcp.tool()
