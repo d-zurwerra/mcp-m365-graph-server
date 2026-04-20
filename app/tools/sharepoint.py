@@ -42,6 +42,9 @@ async def sharepoint_get_lists(site_id: str) -> dict:
         return {"lists": lists, "count": len(lists)}
 
 
+import logging
+logger = logging.getLogger("oskar-mcp-server.sharepoint")
+
 async def sharepoint_create_list(site_id: str, display_name: str, description: str = None, columns: list[dict] = None) -> dict:
     """
     Erstellt eine neue Liste in einer SharePoint Site.
@@ -80,6 +83,7 @@ async def sharepoint_create_list(site_id: str, display_name: str, description: s
         body["columns"] = formatted_columns
 
     async with httpx.AsyncClient() as client:
+        logger.info(f"SharePoint Liste erstellen: {body}")
         response = await client.post(
             f"{GRAPH_BASE}/sites/{site_id}/lists",
             headers=headers,
@@ -87,6 +91,7 @@ async def sharepoint_create_list(site_id: str, display_name: str, description: s
             timeout=30,
         )
         if response.status_code not in [200, 201]:
+            logger.error(f"SharePoint Liste Fehler: {response.status_code} – {response.text}")
             raise RuntimeError(
                 f"Liste konnte nicht erstellt werden: {response.status_code} – {response.text}"
             )
