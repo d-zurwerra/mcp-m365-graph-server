@@ -60,7 +60,24 @@ async def sharepoint_create_list(site_id: str, display_name: str, description: s
     if description:
         body["description"] = description
     if columns:
-        body["columns"] = columns
+        # Korrektes Format für SharePoint Graph API Columns
+        formatted_columns = []
+        for col in columns:
+            formatted_col = {"name": col["name"]}
+            if "choice" in col:
+                formatted_col["choice"] = {
+                    "allowTextEntry": False,
+                    "choices": col["choice"].get("choices", []),
+                    "displayAs": col["choice"].get("displayAs", "dropDownMenu"),
+                }
+            elif "text" in col:
+                formatted_col["text"] = {}
+            elif "number" in col:
+                formatted_col["number"] = {}
+            elif "dateTime" in col:
+                formatted_col["dateTime"] = {"format": "dateOnly"}
+            formatted_columns.append(formatted_col)
+        body["columns"] = formatted_columns
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
