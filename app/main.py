@@ -13,7 +13,7 @@ from app.tools.planner import planner_get_plans, planner_create_plan, planner_ge
 from app.tools.teams import teams_get_list, teams_get_channels, teams_create_channel, teams_get_members, teams_add_member, teams_create_chat, teams_send_chat_message
 from app.tools.sharepoint import sharepoint_get_sites, sharepoint_get_lists, sharepoint_create_list, sharepoint_get_list_items, sharepoint_create_list_item
 from app.tools.onenote import onenote_get_notebooks, onenote_create_notebook, onenote_create_page
-from app.tools.groups import find_user as _find_user, create_m365_group as _create_m365_group, upgrade_to_team as _upgrade_to_team, get_m365_groups as _get_m365_groups, get_group_owners as _get_group_owners, add_group_owner as _add_group_owner
+from app.tools.groups import find_user as _find_user, create_m365_group as _create_m365_group, upgrade_to_team as _upgrade_to_team, get_m365_groups as _get_m365_groups, get_group_owners as _get_group_owners, add_group_owner as _add_group_owner, get_group_site as _get_group_site
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("oskar-mcp-server")
@@ -44,6 +44,20 @@ async def get_m365_groups(search: str = None) -> dict:
     """
     logger.info(f"Tool aufgerufen: get_m365_groups (search={search})")
     return await _get_m365_groups(search)
+
+
+@mcp.tool()
+async def get_group_site(group_id: str) -> dict:
+    """
+    Holt die SharePoint Site einer M365 Gruppe.
+    Jede M365 Gruppe hat automatisch eine zugehörige SharePoint Site.
+    Verwende die zurückgegebene siteId für alle SharePoint Operationen.
+
+    Args:
+        group_id: Die ID der M365 Gruppe
+    """
+    logger.info(f"Tool aufgerufen: get_group_site (group_id={group_id})")
+    return await _get_group_site(group_id)
 
 
 @mcp.tool()
@@ -92,20 +106,22 @@ async def create_m365_group(
     description: str = None,
     owner_user_ids: list[str] = None,
     member_user_ids: list[str] = None,
+    visibility: str = "Private",
 ) -> dict:
     """
     Erstellt eine neue Microsoft 365 Gruppe für einen Kunden.
     Erstellt automatisch: SharePoint Site, Planner, Postfach.
-    Prüfe vorher mit get_teams_list ob die Gruppe bereits existiert!
+    Prüfe vorher mit get_m365_groups ob die Gruppe bereits existiert!
 
     Args:
         display_name:    Name der Gruppe (z.B. "Kunde XY")
         description:     Optional – Beschreibung
         owner_user_ids:  Optional – Liste von Entra User IDs als Owners
         member_user_ids: Optional – Liste von Entra User IDs als Members
+        visibility:      "Private" (Standard) oder "Public"
     """
-    logger.info(f"Tool aufgerufen: create_m365_group (name={display_name})")
-    return await _create_m365_group(display_name, description, owner_user_ids, member_user_ids)
+    logger.info(f"Tool aufgerufen: create_m365_group (name={display_name}, visibility={visibility})")
+    return await _create_m365_group(display_name, description, owner_user_ids, member_user_ids, visibility)
 
 
 @mcp.tool()
