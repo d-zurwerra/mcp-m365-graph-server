@@ -1,307 +1,155 @@
 """
-main.py – Oskar MCP Server
+tools/groups.py – Microsoft 365 Gruppen & Teams erstellen
 
-Transport: Streamable HTTP
-Framework: mcp Python SDK + uvicorn
+Tools:
+  - find_user:          User per Name oder Email suchen
+  - create_m365_group:  Neue M365 Gruppe anlegen
+  - upgrade_to_team:    M365 Gruppe zu Team upgraden
 """
 
-import os
-import logging
-from mcp.server.fastmcp import FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
-from app.tools.planner import planner_get_plans, planner_create_plan, planner_get_tasks, planner_create_task, planner_update_task
-from app.tools.teams import teams_get_list, teams_get_channels, teams_create_channel, teams_get_members, teams_add_member, teams_create_chat, teams_send_chat_message
-from app.tools.sharepoint import sharepoint_get_sites, sharepoint_get_lists, sharepoint_create_list, sharepoint_get_list_items, sharepoint_create_list_item
-from app.tools.onenote import onenote_get_notebooks, onenote_create_notebook, onenote_create_page
+import httpx
+import asyncio
+from app.auth import get_graph_headers
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-logger = logging.getLogger("oskar-mcp-server")
-
-mcp = FastMCP(
-    name="Oskar M365 MCP Server",
-    instructions=(
-        "Dieser Server stellt Tools für Microsoft 365 bereit für das interne Kunden-Onboarding: "
-        "Teams (auflisten, Channels, Mitglieder), Planner (Plans und Tasks), "
-        "SharePoint (Sites, Listen, Items) und OneNote (Notebooks, Seiten)."
-    ),
-    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
-)
+GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
 
-# ─── TEAMS TOOLS ──────────────────────────────────────────────────────────────
-
-@mcp.tool()
-async def get_teams_list() -> dict:
-    """Listet alle Microsoft Teams im Tenant auf. Verwende dies um zu prüfen ob ein Team bereits existiert."""
-    logger.info("Tool aufgerufen: get_teams_list")
-    return await teams_get_list()
-
-
-@mcp.tool()
-async def get_team_channels(team_id: str) -> dict:
+async def find_user(search: str) -> dict:
     """
-    Listet alle Channels eines Microsoft Teams auf.
+    Sucht einen User per Name oder Email.
 
     Args:
-        team_id: Die ID des Teams
+        search: Name oder Email Adresse des Users
     """
-    logger.info(f"Tool aufgerufen: get_team_channels (team_id={team_id})")
-    return await teams_get_channels(team_id)
+    headers = await get_graph_headers()
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{GRAPH_BASE}/users?$filter=startswith(displayName,'{search}') or startswith(mail,'{search}')&$select=id,displayName,mail,userPrincipalName",
+            headers=headers,
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        users = [
+            {
+                "id": u.get("id"),
+                "displayName": u.get("displayName"),
+                "mail": u.get("mail"),
+                "userPrincipalName": u.get("userPrincipalName"),
+            }
+            for u in data.get("value", [])
+        ]
+        return {"users": users, "count": len(users)}
 
 
-@mcp.tool()
-async def create_team_channel(team_id: str, display_name: str, description: str = None) -> dict:
+async def create_m365_group(
+    display_name: str,
+    description: str = None,
+    owner_user_ids: list[str] = None,
+    member_user_ids: list[str] = None,
+) -> dict:
     """
-    Erstellt einen neuen Channel in einem Microsoft Team.
+    Erstellt eine neue Microsoft 365 Gruppe.
+    Erstellt automatisch: SharePoint Site, Planner, Postfach.
 
     Args:
-        team_id:      Die ID des Teams
-        display_name: Name des Channels
-        description:  Optional – Beschreibung
+        display_name:    Name der Gruppe
+        description:     Optional – Beschreibung
+        owner_user_ids:  Optional – Liste von Entra User IDs als Owners
+        member_user_ids: Optional – Liste von Entra User IDs als Members
     """
-    logger.info(f"Tool aufgerufen: create_team_channel (team={team_id}, name={display_name})")
-    return await teams_create_channel(team_id, display_name, description)
+    headers = await get_graph_headers()
+
+    # Mail nickname aus display_name ableiten (keine Leerzeichen/Sonderzeichen)
+    mail_nickname = "".join(c for c in display_name if c.isalnum())[:20]
+
+    body = {
+        "displayName": display_name,
+        "mailNickname": mail_nickname,
+        "mailEnabled": True,
+        "securityEnabled": False,
+        "groupTypes": ["Unified"],  # Unified = M365 Gruppe
+    }
+
+    if description:
+        body["description"] = description
+
+    if owner_user_ids:
+        body["owners@odata.bind"] = [
+            f"https://graph.microsoft.com/v1.0/users/{uid}"
+            for uid in owner_user_ids
+        ]
+
+    if member_user_ids:
+        body["members@odata.bind"] = [
+            f"https://graph.microsoft.com/v1.0/users/{uid}"
+            for uid in member_user_ids
+        ]
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{GRAPH_BASE}/groups",
+            headers=headers,
+            json=body,
+            timeout=30,
+        )
+        response.raise_for_status()
+        group = response.json()
+
+        return {
+            "success": True,
+            "groupId": group.get("id"),
+            "displayName": group.get("displayName"),
+            "mailNickname": group.get("mailNickname"),
+            "description": group.get("description"),
+        }
 
 
-@mcp.tool()
-async def get_team_members(team_id: str) -> dict:
+async def upgrade_to_team(group_id: str) -> dict:
     """
-    Listet alle Mitglieder eines Microsoft Teams auf.
+    Upgraded eine bestehende M365 Gruppe zu einem Microsoft Team.
+    Wartet automatisch bis die Gruppe bereit ist (kann 10-30 Sekunden dauern).
 
     Args:
-        team_id: Die ID des Teams
+        group_id: Die ID der M365 Gruppe
     """
-    logger.info(f"Tool aufgerufen: get_team_members (team_id={team_id})")
-    return await teams_get_members(team_id)
+    headers = await get_graph_headers()
 
+    # Retry-Loop – Gruppe braucht nach Erstellung etwas Zeit
+    max_retries = 6
+    retry_delay = 10  # Sekunden
 
-@mcp.tool()
-async def add_team_member(team_id: str, user_id: str, role: str = "member") -> dict:
-    """
-    Fügt ein Mitglied zu einem Microsoft Team hinzu.
+    async with httpx.AsyncClient() as client:
+        for attempt in range(max_retries):
+            response = await client.put(
+                f"{GRAPH_BASE}/groups/{group_id}/team",
+                headers=headers,
+                json={
+                    "memberSettings": {"allowCreatePrivateChannels": True, "allowCreateUpdateChannels": True},
+                    "messagingSettings": {"allowUserEditMessages": True, "allowUserDeleteMessages": True},
+                    "funSettings": {"allowGiphy": True, "giphyContentRating": "moderate"},
+                },
+                timeout=30,
+            )
 
-    Args:
-        team_id: Die ID des Teams
-        user_id: Die Entra User ID des neuen Mitglieds
-        role:    Rolle: 'member' oder 'owner'
-    """
-    logger.info(f"Tool aufgerufen: add_team_member (team={team_id}, user={user_id})")
-    return await teams_add_member(team_id, user_id, role)
+            if response.status_code == 201:
+                team = response.json()
+                return {
+                    "success": True,
+                    "teamId": team.get("id"),
+                    "displayName": team.get("displayName"),
+                    "webUrl": team.get("webUrl"),
+                }
+            elif response.status_code == 409:
+                # Gruppe existiert bereits als Team
+                return {"success": True, "teamId": group_id, "note": "Gruppe war bereits ein Team"}
+            elif response.status_code in [404, 400] and attempt < max_retries - 1:
+                # Gruppe noch nicht bereit – warten und retry
+                await asyncio.sleep(retry_delay)
+                continue
+            else:
+                raise RuntimeError(
+                    f"Team-Upgrade fehlgeschlagen: {response.status_code} – {response.text}"
+                )
 
-
-@mcp.tool()
-async def create_teams_chat(member_user_ids: list[str], chat_topic: str = None) -> dict:
-    """
-    Erstellt einen neuen Microsoft Teams Chat (1:1 oder Gruppe).
-
-    Args:
-        member_user_ids: Liste von Entra User IDs (mind. 2)
-        chat_topic:      Optional – Thema (nur für Gruppen)
-    """
-    logger.info(f"Tool aufgerufen: create_teams_chat ({len(member_user_ids)} Mitglieder)")
-    return await teams_create_chat(member_user_ids, chat_topic)
-
-
-@mcp.tool()
-async def send_teams_chat_message(chat_id: str, message: str) -> dict:
-    """
-    Sendet eine Nachricht in einen bestehenden Microsoft Teams Chat.
-
-    Args:
-        chat_id: Die ID des Chats
-        message: Der Nachrichtentext (HTML erlaubt)
-    """
-    logger.info(f"Tool aufgerufen: send_teams_chat_message (chat_id={chat_id})")
-    return await teams_send_chat_message(chat_id, message)
-
-
-# ─── PLANNER TOOLS ────────────────────────────────────────────────────────────
-
-@mcp.tool()
-async def get_planner_plans(group_id: str) -> dict:
-    """
-    Listet alle Planner Plans einer Microsoft 365 Gruppe auf.
-
-    Args:
-        group_id: Die ID der M365 Gruppe (= Team ID)
-    """
-    logger.info(f"Tool aufgerufen: get_planner_plans (group_id={group_id})")
-    return await planner_get_plans(group_id)
-
-
-@mcp.tool()
-async def create_planner_plan(group_id: str, title: str) -> dict:
-    """
-    Erstellt einen neuen Planner Plan in einer Microsoft 365 Gruppe.
-
-    Args:
-        group_id: Die ID der M365 Gruppe (= Team ID)
-        title:    Titel des Plans
-    """
-    logger.info(f"Tool aufgerufen: create_planner_plan (group={group_id}, title={title})")
-    return await planner_create_plan(group_id, title)
-
-
-@mcp.tool()
-async def get_planner_tasks(plan_id: str) -> dict:
-    """
-    Liest alle Aufgaben eines Planner Plans.
-
-    Args:
-        plan_id: Die ID des Plans
-    """
-    logger.info(f"Tool aufgerufen: get_planner_tasks (plan_id={plan_id})")
-    return await planner_get_tasks(plan_id)
-
-
-@mcp.tool()
-async def create_planner_task(plan_id: str, title: str, bucket_id: str = None, due_date: str = None, assigned_user_id: str = None) -> dict:
-    """
-    Erstellt eine neue Aufgabe in einem Planner Plan.
-
-    Args:
-        plan_id:          Die ID des Plans
-        title:            Titel der Aufgabe
-        bucket_id:        Optional – ID des Buckets
-        due_date:         Optional – Fälligkeitsdatum (ISO 8601)
-        assigned_user_id: Optional – Entra User ID
-    """
-    logger.info(f"Tool aufgerufen: create_planner_task (title={title})")
-    return await planner_create_task(plan_id, title, bucket_id, due_date, assigned_user_id)
-
-
-@mcp.tool()
-async def update_planner_task(task_id: str, title: str = None, percent_complete: int = None, due_date: str = None) -> dict:
-    """
-    Aktualisiert eine bestehende Planner Aufgabe.
-
-    Args:
-        task_id:          Die ID der Aufgabe
-        title:            Optional – Neuer Titel
-        percent_complete: Optional – Fortschritt (0, 50 oder 100)
-        due_date:         Optional – Neues Fälligkeitsdatum (ISO 8601)
-    """
-    logger.info(f"Tool aufgerufen: update_planner_task (task_id={task_id})")
-    return await planner_update_task(task_id, title, percent_complete, due_date)
-
-
-# ─── SHAREPOINT TOOLS ─────────────────────────────────────────────────────────
-
-@mcp.tool()
-async def get_sharepoint_sites(search_term: str = None) -> dict:
-    """
-    Listet verfügbare SharePoint Sites auf.
-
-    Args:
-        search_term: Optional – Suchbegriff
-    """
-    logger.info(f"Tool aufgerufen: get_sharepoint_sites (search={search_term})")
-    return await sharepoint_get_sites(search_term)
-
-
-@mcp.tool()
-async def get_sharepoint_lists(site_id: str) -> dict:
-    """
-    Listet alle Listen einer SharePoint Site auf. Verwende dies um zu prüfen ob eine Liste bereits existiert.
-
-    Args:
-        site_id: Die ID der SharePoint Site
-    """
-    logger.info(f"Tool aufgerufen: get_sharepoint_lists (site_id={site_id})")
-    return await sharepoint_get_lists(site_id)
-
-
-@mcp.tool()
-async def create_sharepoint_list(site_id: str, display_name: str, description: str = None, columns: list[dict] = None) -> dict:
-    """
-    Erstellt eine neue Liste in einer SharePoint Site.
-
-    Args:
-        site_id:      Die ID der SharePoint Site
-        display_name: Name der Liste
-        description:  Optional – Beschreibung
-        columns:      Optional – Spalten z.B. [{"name": "Status", "text": {}}]
-    """
-    logger.info(f"Tool aufgerufen: create_sharepoint_list (site={site_id}, name={display_name})")
-    return await sharepoint_create_list(site_id, display_name, description, columns)
-
-
-@mcp.tool()
-async def get_sharepoint_list_items(site_id: str, list_id: str, top: int = 50) -> dict:
-    """
-    Liest Items aus einer SharePoint Liste.
-
-    Args:
-        site_id: Die ID der Site
-        list_id: Die ID der Liste
-        top:     Max. Anzahl Items (Standard: 50)
-    """
-    logger.info(f"Tool aufgerufen: get_sharepoint_list_items (site={site_id}, list={list_id})")
-    return await sharepoint_get_list_items(site_id, list_id, top)
-
-
-@mcp.tool()
-async def create_sharepoint_list_item(site_id: str, list_id: str, fields: dict) -> dict:
-    """
-    Erstellt ein neues Item in einer SharePoint Liste.
-
-    Args:
-        site_id:  Die ID der Site
-        list_id:  Die ID der Liste
-        fields:   Felder z.B. {"Title": "Neues Item", "Status": "Offen"}
-    """
-    logger.info(f"Tool aufgerufen: create_sharepoint_list_item (site={site_id}, list={list_id})")
-    return await sharepoint_create_list_item(site_id, list_id, fields)
-
-
-# ─── ONENOTE TOOLS ────────────────────────────────────────────────────────────
-
-@mcp.tool()
-async def get_onenote_notebooks(group_id: str = None) -> dict:
-    """
-    Listet OneNote Notebooks auf.
-
-    Args:
-        group_id: Optional – ID einer M365 Gruppe / Teams
-    """
-    logger.info(f"Tool aufgerufen: get_onenote_notebooks (group_id={group_id})")
-    return await onenote_get_notebooks(group_id)
-
-
-@mcp.tool()
-async def create_onenote_notebook(display_name: str, group_id: str = None) -> dict:
-    """
-    Erstellt ein neues OneNote Notebook.
-
-    Args:
-        display_name: Name des Notebooks
-        group_id:     Optional – ID einer M365 Gruppe / Teams
-    """
-    logger.info(f"Tool aufgerufen: create_onenote_notebook (name={display_name})")
-    return await onenote_create_notebook(display_name, group_id)
-
-
-@mcp.tool()
-async def create_onenote_page(notebook_id: str, title: str, content: str, group_id: str = None) -> dict:
-    """
-    Erstellt eine neue Seite in einem OneNote Notebook.
-
-    Args:
-        notebook_id: Die ID des Notebooks
-        title:       Titel der Seite
-        content:     HTML-Inhalt der Seite
-        group_id:    Optional – ID einer M365 Gruppe / Teams
-    """
-    logger.info(f"Tool aufgerufen: create_onenote_page (notebook={notebook_id}, title={title})")
-    return await onenote_create_page(notebook_id, title, content, group_id)
-
-
-# ─── SERVER START ─────────────────────────────────────────────────────────────
-
-app = mcp.streamable_http_app()
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    logger.info(f"Oskar MCP Server startet auf Port {port}")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    raise RuntimeError("Team-Upgrade fehlgeschlagen: Maximale Anzahl Versuche erreicht")
