@@ -181,3 +181,37 @@ async def get_m365_groups(search: str = None) -> dict:
             for g in data.get("value", [])
         ]
         return {"groups": groups, "count": len(groups)}
+
+
+async def get_group_owners(group_id: str) -> dict:
+    """Listet alle Owner einer M365 Gruppe auf."""
+    headers = await get_graph_headers()
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{GRAPH_BASE}/groups/{group_id}/owners?$select=id,displayName,mail",
+            headers=headers,
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        owners = [{"id": o.get("id"), "displayName": o.get("displayName"), "mail": o.get("mail")} for o in data.get("value", [])]
+        return {"owners": owners, "count": len(owners)}
+
+
+async def add_group_owner(group_id: str, user_id: str) -> dict:
+    """Fügt einen Owner zu einer M365 Gruppe hinzu."""
+    headers = await get_graph_headers()
+    body = {"@odata.id": f"https://graph.microsoft.com/v1.0/users/{user_id}"}
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{GRAPH_BASE}/groups/{group_id}/owners/$ref",
+            headers=headers,
+            json=body,
+            timeout=30,
+        )
+        if response.status_code == 204:
+            return {"success": True, "userId": user_id, "note": "Owner erfolgreich hinzugefügt"}
+        elif response.status_code == 400 and "already exist" in response.text.lower():
+            return {"success": True, "userId": user_id, "note": "User ist bereits Owner"}
+        response.raise_for_status()
+        return {"success": True, "userId": user_id}
