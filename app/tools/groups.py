@@ -95,7 +95,10 @@ async def create_m365_group(
             json=body,
             timeout=30,
         )
-        response.raise_for_status()
+        if response.status_code != 201:
+            raise RuntimeError(
+                f"Gruppe konnte nicht erstellt werden: {response.status_code} – {response.text}"
+            )
         group = response.json()
 
         return {
