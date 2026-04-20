@@ -73,12 +73,13 @@ async def sharepoint_create_list(site_id: str, display_name: str, description: s
                     "choices": col["choice"].get("choices", []),
                     "displayAs": col["choice"].get("displayAs", "dropDownMenu"),
                 }
-            elif "text" in col:
-                formatted_col["text"] = {}
             elif "number" in col:
                 formatted_col["number"] = {}
             elif "dateTime" in col:
                 formatted_col["dateTime"] = {"format": "dateOnly"}
+            else:
+                # Default: text column
+                formatted_col["text"] = {}
             formatted_columns.append(formatted_col)
         body["columns"] = formatted_columns
 
