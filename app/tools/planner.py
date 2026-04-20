@@ -61,6 +61,22 @@ async def planner_get_tasks(plan_id: str) -> dict:
         return {"tasks": tasks, "count": len(tasks)}
 
 
+async def planner_create_bucket(plan_id: str, name: str) -> dict:
+    """Erstellt einen neuen Bucket in einem Planner Plan."""
+    headers = await get_graph_headers()
+    body = {"planId": plan_id, "name": name, "orderHint": " !"}
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{GRAPH_BASE}/planner/buckets",
+            headers=headers,
+            json=body,
+            timeout=30,
+        )
+        response.raise_for_status()
+        bucket = response.json()
+        return {"success": True, "bucketId": bucket.get("id"), "name": bucket.get("name")}
+
+
 async def planner_create_task(plan_id: str, title: str, bucket_id: str = None, due_date: str = None, assigned_user_id: str = None) -> dict:
     """Erstellt eine neue Aufgabe in einem Planner Plan."""
     headers = await get_graph_headers()
