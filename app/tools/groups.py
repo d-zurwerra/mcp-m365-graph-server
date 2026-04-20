@@ -245,3 +245,33 @@ async def get_group_site(group_id: str) -> dict:
             "webUrl": site.get("webUrl"),
             "name": site.get("name"),
         }
+
+
+async def add_group_member(group_id: str, user_id: str) -> dict:
+    """
+    Fügt einen User als Member zu einer M365 Gruppe hinzu.
+    Verwendet /groups/{id}/members/$ref – funktioniert unabhängig vom Team-Status.
+
+    Args:
+        group_id: Die ID der M365 Gruppe
+        user_id:  Die Entra User ID
+    """
+    import logging
+    logger = logging.getLogger("oskar-mcp-server.groups")
+    headers = await get_graph_headers()
+    body = {"@odata.id": f"https://graph.microsoft.com/v1.0/users/{user_id}"}
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{GRAPH_BASE}/groups/{group_id}/members/$ref",
+            headers=headers,
+            json=body,
+            timeout=30,
+        )
+        logger.info(f"add_group_member response: {response.status_code}")
+        if response.status_code == 204:
+            return {"success": True, "userId": user_id, "note": "Member erfolgreich hinzugefügt"}
+        elif response.status_code == 400 and "already exist" in response.text.lower():
+            return {"success": True, "userId": user_id, "note": "User ist bereits Member"}
+        elif response.status_code not in [200, 201, 204]:
+            raise RuntimeError(f"Member hinzufügen fehlgeschlagen: {response.status_code} – {response.text}")
+        return {"success": True, "userId": user_id}
