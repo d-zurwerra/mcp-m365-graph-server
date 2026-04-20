@@ -50,7 +50,7 @@ async def sharepoint_create_list(site_id: str, display_name: str, description: s
         site_id:      Die ID der SharePoint Site
         display_name: Name der Liste
         description:  Optional – Beschreibung
-        columns:      Optional – Liste von Spalten z.B. [{"name": "Status", "text": {}}]
+        columns:      Optional – Spalten z.B. [{"name": "Status", "choice": {"choices": ["Offen", "Erledigt"]}}, {"name": "Verantwortlich", "text": {}}]
     """
     headers = await get_graph_headers()
     body = {
@@ -69,7 +69,10 @@ async def sharepoint_create_list(site_id: str, display_name: str, description: s
             json=body,
             timeout=30,
         )
-        response.raise_for_status()
+        if response.status_code not in [200, 201]:
+            raise RuntimeError(
+                f"Liste konnte nicht erstellt werden: {response.status_code} – {response.text}"
+            )
         lst = response.json()
         return {"success": True, "listId": lst.get("id"), "displayName": lst.get("displayName"), "webUrl": lst.get("webUrl")}
 
