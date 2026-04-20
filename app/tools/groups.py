@@ -153,3 +153,31 @@ async def upgrade_to_team(group_id: str) -> dict:
                 )
 
     raise RuntimeError("Team-Upgrade fehlgeschlagen: Maximale Anzahl Versuche erreicht")
+
+
+async def get_m365_groups(search: str = None) -> dict:
+    """
+    Listet alle M365 Gruppen auf – auch solche die noch kein Team sind.
+
+    Args:
+        search: Optional – Suchbegriff für Gruppenname
+    """
+    headers = await get_graph_headers()
+    if search:
+        url = f"{GRAPH_BASE}/groups?$filter=groupTypes/any(c:c eq 'Unified') and startswith(displayName,'{search}')&$select=id,displayName,description"
+    else:
+        url = f"{GRAPH_BASE}/groups?$filter=groupTypes/any(c:c eq 'Unified')&$select=id,displayName,description"
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        groups = [
+            {
+                "id": g.get("id"),
+                "displayName": g.get("displayName"),
+                "description": g.get("description"),
+            }
+            for g in data.get("value", [])
+        ]
+        return {"groups": groups, "count": len(groups)}
