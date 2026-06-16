@@ -9,10 +9,15 @@ import os
 import logging
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route, Mount
 from app.tools.planner import planner_get_plans, planner_create_plan, planner_get_tasks, planner_create_task, planner_update_task, planner_create_bucket
 from app.tools.teams import teams_get_list, teams_get_channels, teams_create_channel, teams_get_members, teams_add_member, teams_create_chat, teams_send_chat_message
 from app.tools.sharepoint import sharepoint_get_sites, sharepoint_get_lists, sharepoint_create_list, sharepoint_get_list_items, sharepoint_create_list_item
 from app.tools.groups import find_user as _find_user, create_m365_group as _create_m365_group, upgrade_to_team as _upgrade_to_team, get_m365_groups as _get_m365_groups, get_group_owners as _get_group_owners, add_group_owner as _add_group_owner, get_group_site as _get_group_site, add_group_member as _add_group_member
+from app.oauth_middleware import OAuth2Middleware
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("oskar-mcp-server")
@@ -393,7 +398,52 @@ async def create_sharepoint_list_item(site_id: str, list_id: str, fields: dict) 
 
 # ─── SERVER START ─────────────────────────────────────────────────────────────
 
-app = mcp.streamable_http_app()
+_tenant_id = os.environ.get("ENTRA_TENANT_ID")
+_client_id = os.environ.get("ENTRA_CLIENT_ID")
+
+
+async def oauth_register(request: Request) -> JSONResponse:
+    """
+    RFC 7591 Dynamic Client Registration Endpoint.
+    Copilot Studio ruft diesen Endpoint auf wenn Auth-Typ 'Dynamisch' gewählt wird.
+    Antwortet mit der Entra ID App Registration Client ID — kein Secret nötig (PKCE).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    redirect_uris = body.get("redirect_uris", [])
+    logger.info(f"OAuth Dynamic Registration angefragt (redirect_uris={redirect_uris})")
+
+    if not _client_id:
+        return JSONResponse({"error": "ENTRA_CLIENT_ID nicht konfiguriert"}, status_code=500)
+
+    return JSONResponse({
+        "client_id": _client_id,
+        "client_secret_expires_at": 0,
+        "redirect_uris": redirect_uris,
+        "grant_types": ["authorization_code"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",  # Public client – kein Secret, PKCE wird verwendet
+    }, status_code=201)
+
+
+# MCP App aufbauen und /register Endpoint ergänzen
+_mcp_app = mcp.streamable_http_app()
+
+if _tenant_id and _client_id:
+    _mcp_app.add_middleware(OAuth2Middleware, tenant_id=_tenant_id, client_id=_client_id)
+    logger.info("OAuth2 Middleware aktiviert (Entra ID Token-Validierung)")
+
+    app = Starlette(routes=[
+        Route("/register", oauth_register, methods=["POST"]),
+        Mount("/", app=_mcp_app),
+    ])
+    logger.info("Dynamic Client Registration Endpoint aktiviert (/register)")
+else:
+    app = _mcp_app
+    logger.warning("ENTRA_TENANT_ID oder ENTRA_CLIENT_ID nicht gesetzt – OAuth deaktiviert")
 
 if __name__ == "__main__":
     import uvicorn
