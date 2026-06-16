@@ -426,6 +426,7 @@ async def oauth_register(request: Request) -> JSONResponse:
         "grant_types": ["authorization_code"],
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",  # Public client – kein Secret, PKCE wird verwendet
+        "scope": f"api://{_client_id}/access_as_agent",
     }, status_code=201)
 
 
