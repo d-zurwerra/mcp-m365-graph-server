@@ -9,10 +9,9 @@ import os
 import logging
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from starlette.routing import Route, Mount
+from starlette.routing import Route
 from app.tools.planner import planner_get_plans, planner_create_plan, planner_get_tasks, planner_create_task, planner_update_task, planner_create_bucket
 from app.tools.teams import teams_get_list, teams_get_channels, teams_create_channel, teams_get_members, teams_add_member, teams_create_chat, teams_send_chat_message
 from app.tools.sharepoint import sharepoint_get_sites, sharepoint_get_lists, sharepoint_create_list, sharepoint_get_list_items, sharepoint_create_list_item
@@ -430,20 +429,16 @@ async def oauth_register(request: Request) -> JSONResponse:
     }, status_code=201)
 
 
-# MCP App aufbauen und /register Endpoint ergänzen
-_mcp_app = mcp.streamable_http_app()
+# MCP App aufbauen
+app = mcp.streamable_http_app()
 
 if _tenant_id and _client_id:
-    _mcp_app.add_middleware(OAuth2Middleware, tenant_id=_tenant_id, client_id=_client_id)
+    app.add_middleware(OAuth2Middleware, tenant_id=_tenant_id, client_id=_client_id)
     logger.info("OAuth2 Middleware aktiviert (Entra ID Token-Validierung)")
-
-    app = Starlette(routes=[
-        Route("/register", oauth_register, methods=["POST"]),
-        Mount("/", app=_mcp_app),
-    ])
+    # /register direkt zum Router hinzufügen – Lifecycle bleibt erhalten
+    app.router.routes.insert(0, Route("/register", oauth_register, methods=["POST"]))
     logger.info("Dynamic Client Registration Endpoint aktiviert (/register)")
 else:
-    app = _mcp_app
     logger.warning("ENTRA_TENANT_ID oder ENTRA_CLIENT_ID nicht gesetzt – OAuth deaktiviert")
 
 if __name__ == "__main__":
