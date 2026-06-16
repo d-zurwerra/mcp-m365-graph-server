@@ -12,7 +12,6 @@ from mcp.server.transport_security import TransportSecuritySettings
 from app.tools.planner import planner_get_plans, planner_create_plan, planner_get_tasks, planner_create_task, planner_update_task, planner_create_bucket
 from app.tools.teams import teams_get_list, teams_get_channels, teams_create_channel, teams_get_members, teams_add_member, teams_create_chat, teams_send_chat_message
 from app.tools.sharepoint import sharepoint_get_sites, sharepoint_get_lists, sharepoint_create_list, sharepoint_get_list_items, sharepoint_create_list_item
-from app.tools.onenote import onenote_get_notebooks, onenote_create_notebook, onenote_create_page
 from app.tools.groups import find_user as _find_user, create_m365_group as _create_m365_group, upgrade_to_team as _upgrade_to_team, get_m365_groups as _get_m365_groups, get_group_owners as _get_group_owners, add_group_owner as _add_group_owner, get_group_site as _get_group_site, add_group_member as _add_group_member
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -23,7 +22,7 @@ mcp = FastMCP(
     instructions=(
         "Dieser Server stellt Tools für Microsoft 365 bereit für das interne Kunden-Onboarding: "
         "Teams (auflisten, Channels, Mitglieder), Planner (Plans und Tasks), "
-        "SharePoint (Sites, Listen, Items), OneNote (Notebooks, Seiten) "
+        "SharePoint (Sites, Listen, Items) "
         "und Gruppen (M365 Gruppe + Team erstellen, User suchen)."
     ),
     transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
@@ -271,7 +270,6 @@ async def create_planner_bucket(plan_id: str, name: str) -> dict:
     """
     Erstellt einen neuen Bucket in einem Planner Plan.
     Buckets sind Kategorien/Spalten in Planner.
-    Nach dem Erstellen des Buckets können Tasks mit der bucket_id diesem Bucket zugewiesen werden.
 
     Args:
         plan_id: Die ID des Planner Plans
@@ -393,51 +391,8 @@ async def create_sharepoint_list_item(site_id: str, list_id: str, fields: dict) 
     return await sharepoint_create_list_item(site_id, list_id, fields)
 
 
-# ─── ONENOTE TOOLS ────────────────────────────────────────────────────────────
-
-@mcp.tool()
-async def get_onenote_notebooks(group_id: str = None) -> dict:
-    """
-    Listet OneNote Notebooks auf.
-
-    Args:
-        group_id: Optional – ID einer M365 Gruppe / Teams
-    """
-    logger.info(f"Tool aufgerufen: get_onenote_notebooks (group_id={group_id})")
-    return await onenote_get_notebooks(group_id)
-
-
-@mcp.tool()
-async def create_onenote_notebook(display_name: str, group_id: str = None) -> dict:
-    """
-    Erstellt ein neues OneNote Notebook.
-
-    Args:
-        display_name: Name des Notebooks
-        group_id:     Optional – ID einer M365 Gruppe / Teams
-    """
-    logger.info(f"Tool aufgerufen: create_onenote_notebook (name={display_name})")
-    return await onenote_create_notebook(display_name, group_id)
-
-
-@mcp.tool()
-async def create_onenote_page(notebook_id: str, title: str, content: str, group_id: str = None) -> dict:
-    """
-    Erstellt eine neue Seite in einem OneNote Notebook.
-
-    Args:
-        notebook_id: Die ID des Notebooks
-        title:       Titel der Seite
-        content:     HTML-Inhalt der Seite
-        group_id:    Optional – ID einer M365 Gruppe / Teams
-    """
-    logger.info(f"Tool aufgerufen: create_onenote_page (notebook={notebook_id}, title={title})")
-    return await onenote_create_page(notebook_id, title, content, group_id)
-
-
 # ─── SERVER START ─────────────────────────────────────────────────────────────
 
-# ASGI App auf Modul-Ebene – wird von uvicorn direkt geladen
 app = mcp.streamable_http_app()
 
 if __name__ == "__main__":

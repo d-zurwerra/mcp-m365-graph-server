@@ -1,42 +1,33 @@
 """
-auth.py – Client Secret Auth (temporär für POC)
+auth.py – Managed Identity Auth für Microsoft Graph
 
-⚠️ TODO Produktion: Auf Workload Identity Federation umstellen
-sobald App Registration im in2success Tenant angelegt ist.
-Dann: ClientSecretCredential → ClientAssertionCredential + ManagedIdentityCredential
+Der MCP Server läuft in Azure Container Apps mit System-assigned Managed Identity.
+Die Managed Identity hat die benötigten Graph API Permissions (Phase 5 des Setups).
 
-Aktueller Flow:
-  Client Credentials (App Registration DEV-Tenant + Secret) → Graph Token
+Kein Client Secret, kein Tenant ID, keine Umgebungsvariablen nötig –
+Azure verwaltet die Identität automatisch.
 """
 
-import os
 import logging
-from azure.identity import ClientSecretCredential
+from azure.identity import ManagedIdentityCredential
 from azure.core.exceptions import ClientAuthenticationError
 
 logger = logging.getLogger("oskar-mcp-server.auth")
 
-DEV_TENANT_ID   = os.environ["DEV_TENANT_ID"]    # DEV-Tenant
-APP_CLIENT_ID   = os.environ["APP_CLIENT_ID"]     # App Registration Client ID
-CLIENT_SECRET   = os.environ["CLIENT_SECRET"]     # App Registration Client Secret
-
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
+
+# Credential-Objekt einmal erstellen – azure-identity cached Tokens intern automatisch
+_credential = ManagedIdentityCredential()
 
 
 async def get_graph_token() -> str:
-    """Holt einen Graph Access Token via Client Secret Credentials."""
+    """Holt einen Graph Access Token via Managed Identity."""
     try:
-        credential = ClientSecretCredential(
-            tenant_id=DEV_TENANT_ID,
-            client_id=APP_CLIENT_ID,
-            client_secret=CLIENT_SECRET,
-        )
-        token = credential.get_token(GRAPH_SCOPE)
-        logger.info("Graph Token erfolgreich geholt")
+        token = _credential.get_token(GRAPH_SCOPE)
+        logger.debug("Graph Token erfolgreich geholt")
         return token.token
-
     except ClientAuthenticationError as e:
-        logger.error(f"Auth Fehler: {e}")
+        logger.error(f"Managed Identity Auth Fehler: {e}")
         raise RuntimeError(f"Token Exchange fehlgeschlagen: {e}") from e
 
 

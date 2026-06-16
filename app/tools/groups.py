@@ -5,13 +5,24 @@ Tools:
   - find_user:          User per Name oder Email suchen
   - create_m365_group:  Neue M365 Gruppe anlegen
   - upgrade_to_team:    M365 Gruppe zu Team upgraden
+  - get_m365_groups:    Alle M365 Gruppen auflisten
+  - get_group_owners:   Owner einer Gruppe auflisten
+  - add_group_owner:    Owner hinzufügen
+  - get_group_site:     SharePoint Site einer Gruppe holen
+  - add_group_member:   Member hinzufügen
 """
 
 import httpx
 import asyncio
+from urllib.parse import quote
 from app.auth import get_graph_headers
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+
+
+def _escape_odata(value: str) -> str:
+    """Escaped einfache Anführungszeichen für OData-Filterausdrücke."""
+    return value.replace("'", "''")
 
 
 async def find_user(search: str) -> dict:
@@ -21,10 +32,13 @@ async def find_user(search: str) -> dict:
     Args:
         search: Name oder Email Adresse des Users
     """
+    safe = _escape_odata(search)
     headers = await get_graph_headers()
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{GRAPH_BASE}/users?$filter=startswith(displayName,'{search}') or startswith(mail,'{search}')&$select=id,displayName,mail,userPrincipalName",
+            f"{GRAPH_BASE}/users"
+            f"?$filter=startswith(displayName,'{safe}') or startswith(mail,'{safe}')"
+            f"&$select=id,displayName,mail,userPrincipalName",
             headers=headers,
             timeout=30,
         )
@@ -58,10 +72,12 @@ async def create_m365_group(
         description:     Optional – Beschreibung
         owner_user_ids:  Optional – Liste von Entra User IDs als Owners
         member_user_ids: Optional – Liste von Entra User IDs als Members
+        visibility:      "Private" oder "Public"
     """
-    headers = await get_graph_headers()
+    if visibility not in ("Private", "Public"):
+        raise ValueError(f"visibility muss 'Private' oder 'Public' sein, nicht '{visibility}'")
 
-    # Mail nickname aus display_name ableiten (keine Leerzeichen/Sonderzeichen)
+    headers = await get_graph_headers()
     mail_nickname = "".join(c for c in display_name if c.isalnum())[:20]
 
     body = {
@@ -70,18 +86,16 @@ async def create_m365_group(
         "mailEnabled": True,
         "securityEnabled": False,
         "groupTypes": ["Unified"],
-        "visibility": visibility,  # "Private" oder "Public"
+        "visibility": visibility,
     }
 
     if description:
         body["description"] = description
-
     if owner_user_ids:
         body["owners@odata.bind"] = [
             f"https://graph.microsoft.com/v1.0/users/{uid}"
             for uid in owner_user_ids
         ]
-
     if member_user_ids:
         body["members@odata.bind"] = [
             f"https://graph.microsoft.com/v1.0/users/{uid}"
@@ -97,10 +111,9 @@ async def create_m365_group(
         )
         if response.status_code != 201:
             raise RuntimeError(
-                f"Gruppe konnte nicht erstellt werden: {response.status_code} – {response.text}"
+                f"Gruppe konnte nicht erstellt werden: {response.status_code}"
             )
         group = response.json()
-
         return {
             "success": True,
             "groupId": group.get("id"),
@@ -119,10 +132,8 @@ async def upgrade_to_team(group_id: str) -> dict:
         group_id: Die ID der M365 Gruppe
     """
     headers = await get_graph_headers()
-
-    # Retry-Loop – Gruppe braucht nach Erstellung etwas Zeit
     max_retries = 6
-    retry_delay = 10  # Sekunden
+    retry_delay = 10
 
     async with httpx.AsyncClient() as client:
         for attempt in range(max_retries):
@@ -146,15 +157,13 @@ async def upgrade_to_team(group_id: str) -> dict:
                     "webUrl": team.get("webUrl"),
                 }
             elif response.status_code == 409:
-                # Gruppe existiert bereits als Team
                 return {"success": True, "teamId": group_id, "note": "Gruppe war bereits ein Team"}
             elif response.status_code in [404, 400] and attempt < max_retries - 1:
-                # Gruppe noch nicht bereit – warten und retry
                 await asyncio.sleep(retry_delay)
                 continue
             else:
                 raise RuntimeError(
-                    f"Team-Upgrade fehlgeschlagen: {response.status_code} – {response.text}"
+                    f"Team-Upgrade fehlgeschlagen: {response.status_code}"
                 )
 
     raise RuntimeError("Team-Upgrade fehlgeschlagen: Maximale Anzahl Versuche erreicht")
@@ -169,7 +178,12 @@ async def get_m365_groups(search: str = None) -> dict:
     """
     headers = await get_graph_headers()
     if search:
-        url = f"{GRAPH_BASE}/groups?$filter=groupTypes/any(c:c eq 'Unified') and startswith(displayName,'{search}')&$select=id,displayName,description"
+        safe = _escape_odata(search)
+        url = (
+            f"{GRAPH_BASE}/groups"
+            f"?$filter=groupTypes/any(c:c eq 'Unified') and startswith(displayName,'{safe}')"
+            f"&$select=id,displayName,description"
+        )
     else:
         url = f"{GRAPH_BASE}/groups?$filter=groupTypes/any(c:c eq 'Unified')&$select=id,displayName,description"
 
@@ -199,7 +213,10 @@ async def get_group_owners(group_id: str) -> dict:
         )
         response.raise_for_status()
         data = response.json()
-        owners = [{"id": o.get("id"), "displayName": o.get("displayName"), "mail": o.get("mail")} for o in data.get("value", [])]
+        owners = [
+            {"id": o.get("id"), "displayName": o.get("displayName"), "mail": o.get("mail")}
+            for o in data.get("value", [])
+        ]
         return {"owners": owners, "count": len(owners)}
 
 
@@ -225,7 +242,6 @@ async def add_group_owner(group_id: str, user_id: str) -> dict:
 async def get_group_site(group_id: str) -> dict:
     """
     Holt die SharePoint Site einer M365 Gruppe.
-    Jede M365 Gruppe hat automatisch eine zugehörige SharePoint Site.
 
     Args:
         group_id: Die ID der M365 Gruppe
@@ -250,7 +266,6 @@ async def get_group_site(group_id: str) -> dict:
 async def add_group_member(group_id: str, user_id: str) -> dict:
     """
     Fügt einen User als Member zu einer M365 Gruppe hinzu.
-    Verwendet /groups/{id}/members/$ref – funktioniert unabhängig vom Team-Status.
 
     Args:
         group_id: Die ID der M365 Gruppe
@@ -273,5 +288,5 @@ async def add_group_member(group_id: str, user_id: str) -> dict:
         elif response.status_code == 400 and "already exist" in response.text.lower():
             return {"success": True, "userId": user_id, "note": "User ist bereits Member"}
         elif response.status_code not in [200, 201, 204]:
-            raise RuntimeError(f"Member hinzufügen fehlgeschlagen: {response.status_code} – {response.text}")
+            raise RuntimeError(f"Member hinzufügen fehlgeschlagen: {response.status_code}")
         return {"success": True, "userId": user_id}

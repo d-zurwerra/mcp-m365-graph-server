@@ -9,21 +9,33 @@ Tools:
   - create_sharepoint_list_item: Neues Item erstellen
 """
 
+import logging
 import httpx
+from urllib.parse import quote
 from app.auth import get_graph_headers
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+logger = logging.getLogger("oskar-mcp-server.sharepoint")
 
 
 async def sharepoint_get_sites(search_term: str = None) -> dict:
     """Listet SharePoint Sites auf, optional gefiltert nach Suchbegriff."""
     headers = await get_graph_headers()
-    url = f"{GRAPH_BASE}/sites?search={search_term}" if search_term else f"{GRAPH_BASE}/sites?search=*"
+    search = quote(search_term) if search_term else "*"
+    url = f"{GRAPH_BASE}/sites?search={search}"
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         data = response.json()
-        sites = [{"id": s.get("id"), "name": s.get("name"), "displayName": s.get("displayName"), "webUrl": s.get("webUrl")} for s in data.get("value", [])]
+        sites = [
+            {
+                "id": s.get("id"),
+                "name": s.get("name"),
+                "displayName": s.get("displayName"),
+                "webUrl": s.get("webUrl"),
+            }
+            for s in data.get("value", [])
+        ]
         return {"sites": sites, "count": len(sites)}
 
 
@@ -38,12 +50,12 @@ async def sharepoint_get_lists(site_id: str) -> dict:
         )
         response.raise_for_status()
         data = response.json()
-        lists = [{"id": l.get("id"), "displayName": l.get("displayName"), "description": l.get("description")} for l in data.get("value", [])]
+        lists = [
+            {"id": l.get("id"), "displayName": l.get("displayName"), "description": l.get("description")}
+            for l in data.get("value", [])
+        ]
         return {"lists": lists, "count": len(lists)}
 
-
-import logging
-logger = logging.getLogger("oskar-mcp-server.sharepoint")
 
 async def sharepoint_create_list(site_id: str, display_name: str, description: str = None, columns: list[dict] = None) -> dict:
     """
@@ -53,7 +65,7 @@ async def sharepoint_create_list(site_id: str, display_name: str, description: s
         site_id:      Die ID der SharePoint Site
         display_name: Name der Liste
         description:  Optional – Beschreibung
-        columns:      Optional – Spalten z.B. [{"name": "Status", "choice": {"choices": ["Offen", "Erledigt"]}}, {"name": "Verantwortlich", "text": {}}]
+        columns:      Optional – Spalten z.B. [{"name": "Status", "choice": {"choices": ["Offen", "Erledigt"]}}]
     """
     headers = await get_graph_headers()
     body = {
@@ -63,7 +75,6 @@ async def sharepoint_create_list(site_id: str, display_name: str, description: s
     if description:
         body["description"] = description
     if columns:
-        # Korrektes Format für SharePoint Graph API Columns
         formatted_columns = []
         for col in columns:
             formatted_col = {"name": col["name"]}
@@ -78,13 +89,12 @@ async def sharepoint_create_list(site_id: str, display_name: str, description: s
             elif "dateTime" in col:
                 formatted_col["dateTime"] = {"format": "dateOnly"}
             else:
-                # Default: text column
                 formatted_col["text"] = {}
             formatted_columns.append(formatted_col)
         body["columns"] = formatted_columns
 
     async with httpx.AsyncClient() as client:
-        logger.info(f"SharePoint Liste erstellen: {body}")
+        logger.info(f"SharePoint Liste erstellen: {display_name}")
         response = await client.post(
             f"{GRAPH_BASE}/sites/{site_id}/lists",
             headers=headers,
@@ -92,12 +102,15 @@ async def sharepoint_create_list(site_id: str, display_name: str, description: s
             timeout=30,
         )
         if response.status_code not in [200, 201]:
-            logger.error(f"SharePoint Liste Fehler: {response.status_code} – {response.text}")
-            raise RuntimeError(
-                f"Liste konnte nicht erstellt werden: {response.status_code} – {response.text}"
-            )
+            logger.error(f"SharePoint Liste Fehler: {response.status_code}")
+            raise RuntimeError(f"Liste konnte nicht erstellt werden: {response.status_code}")
         lst = response.json()
-        return {"success": True, "listId": lst.get("id"), "displayName": lst.get("displayName"), "webUrl": lst.get("webUrl")}
+        return {
+            "success": True,
+            "listId": lst.get("id"),
+            "displayName": lst.get("displayName"),
+            "webUrl": lst.get("webUrl"),
+        }
 
 
 async def sharepoint_get_list_items(site_id: str, list_id: str, top: int = 50) -> dict:
@@ -111,7 +124,10 @@ async def sharepoint_get_list_items(site_id: str, list_id: str, top: int = 50) -
         )
         response.raise_for_status()
         data = response.json()
-        items = [{"id": i.get("id"), "fields": i.get("fields", {}), "createdDateTime": i.get("createdDateTime")} for i in data.get("value", [])]
+        items = [
+            {"id": i.get("id"), "fields": i.get("fields", {}), "createdDateTime": i.get("createdDateTime")}
+            for i in data.get("value", [])
+        ]
         return {"items": items, "count": len(items)}
 
 
